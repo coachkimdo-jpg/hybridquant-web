@@ -96,6 +96,7 @@ function App() {
   // Scoring Engine State
   const [scoredStocks, setScoredStocks] = useState<Record<string, any>>({});
   const [isScoring, setIsScoring] = useState(false);
+  const [scanProgress, setScanProgress] = useState<{total: number, current: number, is_running: boolean}>({total: 0, current: 0, is_running: false});
 
   // Load ALL tickers once
   useEffect(() => {
@@ -117,19 +118,61 @@ function App() {
   const runScoringEngine = async (showFeedback = false) => {
     setIsScoring(true);
     try {
-      const res = await axios.get(`${BACKEND_URL}/api/v4/screener/auto`, { headers: { "Bypass-Tunnel-Reminder": "true" } });
-      if (res.data) {
-        setScoredStocks(res.data);
-        setWatchlistTickers(Object.keys(res.data));
-        if (showFeedback) {
-            alert(`[Scoring Complete] 엔진 구동 완료! 총 ${Object.keys(res.data).length}개의 종목이 4점 이상을 획득하여 감시 리스트에 추가되었습니다.`);
-        }
+      const res = await axios.get(`${BACKEND_URL}/api/v4/screener/start-scan`, { headers: { "Bypass-Tunnel-Reminder": "true" } });
+      if (showFeedback) {
+          alert(`[스캔 시작] 전체 2,500개 종목 스캔을 백그라운드에서 시작합니다. 잠시만 기다려주세요...`);
       }
     } catch (err) {
-      console.error('Error fetching scored stocks:', err);
+      console.error('Error starting scan:', err);
+      setIsScoring(false);
     }
-    setIsScoring(false);
   };
+
+  // Polling for Scan Status
+  useEffect(() => {
+    let interval: any = null;
+    
+    const checkStatus = async () => {
+      try {
+        const res = await axios.get(`${BACKEND_URL}/api/v4/screener/status`, { headers: { "Bypass-Tunnel-Reminder": "true" } });
+        if (res.data) {
+          setScanProgress({
+            total: res.data.total,
+            current: res.data.current,
+            is_running: res.data.is_running
+          });
+          
+          if (res.data.is_running) {
+            setIsScoring(true);
+          } else {
+            // Once finished or not running, stop scoring state
+            if (isScoring) {
+              setIsScoring(false);
+              // Fetch results
+              const resultRes = await axios.get(`${BACKEND_URL}/api/v4/screener/results`, { headers: { "Bypass-Tunnel-Reminder": "true" } });
+              if (resultRes.data) {
+                setScoredStocks(resultRes.data);
+                setWatchlistTickers(Object.keys(resultRes.data));
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Error checking scan status:", err);
+      }
+    };
+
+    if (isScoring) {
+      interval = setInterval(checkStatus, 1500);
+    }
+    
+    // Initial check just in case it's already running on the server
+    if (!isScoring) {
+      checkStatus();
+    }
+
+    return () => clearInterval(interval);
+  }, [isScoring]);
 
   useEffect(() => {
     if (Object.keys(allTickerNames).length > 0) {
@@ -542,14 +585,36 @@ function App() {
             <p className="text-xs text-slate-400 mb-4 leading-relaxed">
               엄격한 탈락(Hard Filter) 대신 6개의 핵심 기준을 통과할 때마다 점수를 부여하여 시장 상황에 유연하게 대응합니다. (4점 이상: 관심, 5점: 우수, 6점: A-Grade)
             </p>
-            <button 
-              onClick={() => runScoringEngine(true)}
-              disabled={isScoring}
-              className={`w-full flex items-center justify-center px-4 py-2 text-white text-xs font-bold rounded shadow-lg transition-all ${isScoring ? 'bg-indigo-800 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-500/20'}`}
-            >
-              <Activity className={`w-4 h-4 mr-2 ${isScoring ? 'animate-spin' : ''}`} />
-              {isScoring ? '엔진 분석 중...' : 'Run Auto Scoring Engine'}
-            </button>
+            {!isScoring ? (
+              <button 
+                onClick={() => runScoringEngine(true)}
+                className="w-full flex items-center justify-center px-4 py-2 text-white text-xs font-bold rounded shadow-lg transition-all bg-indigo-600 hover:bg-indigo-500 shadow-indigo-500/20"
+              >
+                <Activity className="w-4 h-4 mr-2" />
+                🚀 전체 시장 스캔 시작 (약 5~10분 소요)
+              </button>
+            ) : (
+              <div className="w-full bg-slate-800 rounded p-3 shadow-inner">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-xs font-medium text-indigo-400 flex items-center">
+                    <Activity className="w-3 h-3 mr-1 animate-spin" />
+                    스캔 분석 중...
+                  </span>
+                  <span className="text-xs text-slate-300 font-bold">
+                    {scanProgress.total > 0 ? `${Math.round((scanProgress.current / scanProgress.total) * 100)}%` : '0%'}
+                  </span>
+                </div>
+                <div className="w-full bg-slate-700 rounded-full h-2 mb-1 overflow-hidden">
+                  <div 
+                    className="bg-indigo-500 h-2 rounded-full transition-all duration-500 ease-out"
+                    style={{ width: `${scanProgress.total > 0 ? (scanProgress.current / scanProgress.total) * 100 : 0}%` }}
+                  ></div>
+                </div>
+                <div className="text-[10px] text-slate-400 text-right mt-1">
+                  {scanProgress.current.toLocaleString()} / {scanProgress.total.toLocaleString()} 종목 완료
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Watchlist / All Stocks Panel */}

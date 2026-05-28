@@ -23,6 +23,110 @@ class AlertRequest(BaseModel):
 
 app = FastAPI(title="HybridQuant Web API")
 
+scan_status = {
+    "is_running": False,
+    "total": 0,
+    "current": 0,
+    "results": {}
+}
+
+import threading
+import time
+from database import SessionLocal
+
+def bg_scan_market():
+    global scan_status
+    if scan_status["is_running"]:
+        return
+    scan_status["is_running"] = True
+    scan_status["current"] = 0
+    scan_status["results"] = {}
+
+    import json
+    import os
+    file_path = os.path.join(os.path.dirname(__file__), "tickers.json")
+    if not os.path.exists(file_path):
+        scan_status["is_running"] = False
+        return
+        
+    with open(file_path, "r", encoding="utf-8") as f:
+        all_stocks = json.load(f)
+        
+    keys = list(all_stocks.keys())
+    scan_status["total"] = len(keys)
+    
+    db = SessionLocal()
+    
+    for i, ticker in enumerate(keys):
+        if not scan_status["is_running"]:
+            break
+        
+        try:
+            chart_res = get_v2_chart_data(ticker, db)
+            cdata = chart_res.get("chart_data", [])
+            if cdata:
+                latest = cdata[-1]
+                c_close = latest.get("close", 0)
+                
+                score = 0
+                passes = []
+                
+                score += 1
+                passes.append("fundamental")
+                
+                if c_close > latest.get("avwap", 0):
+                    score += 1
+                    passes.append("vwap")
+                    
+                poc = chart_res.get("poc_price", 0)
+                if poc > 0 and (c_close > poc or abs(c_close - poc)/poc <= 0.02):
+                    score += 1
+                    passes.append("poc")
+                    
+                if latest.get("ema_20", 0) > latest.get("ema_50", 0):
+                    score += 1
+                    passes.append("ema_cross")
+                    
+                if latest.get("macd_hist", 0) > 0:
+                    score += 1
+                    passes.append("macd")
+                    
+                chand = latest.get("chandelier_exit", 0)
+                if chand > 0 and c_close > chand:
+                    score += 1
+                    passes.append("chandelier")
+                    
+                if score >= 4:
+                    scan_status["results"][ticker] = {
+                        "name": all_stocks[ticker],
+                        "score": score,
+                        "passes": passes
+                    }
+        except Exception:
+            pass
+            
+        scan_status["current"] = i + 1
+        time.sleep(0.01) # Small sleep to prevent blocking
+        
+    db.close()
+    scan_status["is_running"] = False
+
+@app.get("/api/v4/screener/start-scan")
+def start_scan():
+    if scan_status["is_running"]:
+        return {"message": "Scan already running"}
+    t = threading.Thread(target=bg_scan_market)
+    t.start()
+    return {"message": "Scan started"}
+
+@app.get("/api/v4/screener/status")
+def get_scan_status():
+    return scan_status
+
+@app.get("/api/v4/screener/results")
+def get_scan_results():
+    return scan_status["results"]
+
 @app.get("/api/v4/stocks")
 def get_all_stocks():
     import json
