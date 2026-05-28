@@ -22,4 +22,4 @@ services:
     staticPublishPath: frontend/dist
     envVars:
       - key: NODE_VERSION
-        value: 18.0.0
+        value: 20.19.0
