@@ -97,6 +97,7 @@ function App() {
   const [scoredStocks, setScoredStocks] = useState<Record<string, any>>({});
   const [isScoring, setIsScoring] = useState(false);
   const [scanProgress, setScanProgress] = useState<{total: number, current: number, is_running: boolean}>({total: 0, current: 0, is_running: false});
+  const [scanStartTime, setScanStartTime] = useState<number | null>(null);
 
   // Load ALL tickers once
   useEffect(() => {
@@ -117,14 +118,16 @@ function App() {
   // Handle Scoring Engine Run
   const runScoringEngine = async (showFeedback = false) => {
     setIsScoring(true);
+    setScanStartTime(Date.now());
     try {
       await axios.get(`${BACKEND_URL}/api/v4/screener/start-scan`, { headers: { "Bypass-Tunnel-Reminder": "true" } });
       if (showFeedback) {
-          alert(`[스캔 시작] 전체 2,500개 종목 스캔을 백그라운드에서 시작합니다. 잠시만 기다려주세요...`);
+          // Do not alert to prevent blocking the UI, let the progress bar speak for itself
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error starting scan:', err);
       setIsScoring(false);
+      alert(`[서버 연결 실패] 백엔드 서버에 연결할 수 없습니다. (에러: ${err.message}) Render 대시보드에서 joosik-backend가 정상 작동 중인지 확인해주세요!`);
     }
   };
 
@@ -610,8 +613,20 @@ function App() {
                     style={{ width: `${scanProgress.total > 0 ? (scanProgress.current / scanProgress.total) * 100 : 0}%` }}
                   ></div>
                 </div>
-                <div className="text-[10px] text-slate-400 text-right mt-1">
-                  {scanProgress.current.toLocaleString()} / {scanProgress.total.toLocaleString()} 종목 완료
+                <div className="text-[10px] text-slate-400 flex justify-between mt-1">
+                  <span>
+                    {scanStartTime && scanProgress.current > 0 ? (
+                      (() => {
+                        const elapsed = Date.now() - scanStartTime;
+                        const msPerItem = elapsed / scanProgress.current;
+                        const remain = (scanProgress.total - scanProgress.current) * msPerItem;
+                        return remain > 60000 
+                          ? `⏳ 약 ${Math.ceil(remain / 60000)}분 남음`
+                          : `⏳ 약 ${Math.ceil(remain / 1000)}초 남음`;
+                      })()
+                    ) : '⏳ 계산 중...'}
+                  </span>
+                  <span>{scanProgress.current.toLocaleString()} / {scanProgress.total.toLocaleString()} 완료</span>
                 </div>
               </div>
             )}
