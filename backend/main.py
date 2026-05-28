@@ -378,7 +378,27 @@ def get_v2_chart_data(ticker: str, db: Session = Depends(get_db)):
         # Fetch dynamically if not in DB
         end_date = datetime.today()
         start_date = end_date - timedelta(days=365)
-        df = fdr.DataReader(ticker, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
+        try:
+            df = fdr.DataReader(ticker, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
+        except Exception:
+            df = pd.DataFrame()
+            
+        # Fallback to yfinance if fdr returned empty (common on foreign cloud servers like Render due to Naver IP blocking)
+        if df.empty:
+            try:
+                import yfinance as yf
+                # Try KOSPI (.KS)
+                df = yf.Ticker(f"{ticker}.KS").history(start=start_date.strftime('%Y-%m-%d'), end=end_date.strftime('%Y-%m-%d'))
+                if df.empty or len(df) < 5:
+                    # Try KOSDAQ (.KQ)
+                    df = yf.Ticker(f"{ticker}.KQ").history(start=start_date.strftime('%Y-%m-%d'), end=end_date.strftime('%Y-%m-%d'))
+                
+                if not df.empty:
+                    df.columns = [c.capitalize() for c in df.columns]
+            except Exception as e:
+                print(f"yfinance fallback failed for {ticker}: {e}")
+                df = pd.DataFrame()
+
         if df.empty:
             return {"chart_data": [], "markers": [], "poc_price": None}
 

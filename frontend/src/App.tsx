@@ -5,7 +5,26 @@ import axios from 'axios';
 
 
 // 배포 환경에서는 VITE_BACKEND_URL 환경 변수를 사용하고, 로컬에서는 8000번 포트를 사용합니다.
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+// Render 환경 등에서 VITE_BACKEND_URL 설정이 누락되거나 잘못되었을 때를 대비한 자동 감지(Auto-detect) 폴백을 포함합니다.
+const getBackendUrl = () => {
+  const envUrl = import.meta.env.VITE_BACKEND_URL;
+  if (envUrl && envUrl !== 'http://localhost:8000') {
+    return envUrl;
+  }
+  if (typeof window !== 'undefined' && window.location) {
+    const hostname = window.location.hostname;
+    if (hostname.includes('onrender.com')) {
+      if (hostname.includes('-frontend')) {
+        const protocol = window.location.protocol;
+        const backendHost = hostname.replace('-frontend', '-backend');
+        return `${protocol}//${backendHost}`;
+      }
+    }
+  }
+  return 'http://localhost:8000';
+};
+
+const BACKEND_URL = getBackendUrl();
 const API_BASE_URL = `${BACKEND_URL}/api/v3`;
 const V2_API_BASE_URL = `${BACKEND_URL}/api/v2`;
 
@@ -539,7 +558,7 @@ function App() {
             <div className="absolute top-4 left-4 z-10 flex flex-col gap-2">
               <div className="flex items-center space-x-2 text-white font-mono bg-slate-900/80 px-3 py-1.5 rounded-lg border border-slate-700 backdrop-blur-sm shadow-lg">
                 <TrendingUp className="w-4 h-4 text-emerald-400" />
-                <span className="font-bold">{allTickerNames[activeTicker] || activeTicker} <span className="text-slate-400 text-sm font-normal">({activeTicker})</span></span>
+                <span className="font-bold">{scoredStocks[activeTicker]?.name || allTickerNames[activeTicker] || activeTicker} <span className="text-slate-400 text-sm font-normal">({activeTicker})</span></span>
                 <span className="text-slate-500">|</span>
                 <span className="text-slate-400">1D</span>
               </div>
@@ -677,7 +696,7 @@ function App() {
                           onClick={() => setActiveTicker(ticker)}
                         >
                           <div className="flex items-center">
-                            <span className="font-medium text-slate-200 mr-2 text-sm">{allTickerNames[ticker] || 'Unknown'}</span>
+                            <span className="font-medium text-slate-200 mr-2 text-sm">{scoredStocks[ticker]?.name || allTickerNames[ticker] || 'Unknown'}</span>
                             {isAGrade && <span className="text-[9px] font-bold bg-yellow-500/20 text-yellow-400 border border-yellow-500/50 px-1.5 py-0.5 rounded uppercase">A-Grade</span>}
                             {isGood && <span className="text-[9px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/50 px-1.5 py-0.5 rounded uppercase">5 Points</span>}
                             {!isAGrade && !isGood && <span className="text-[9px] font-bold bg-slate-500/20 text-slate-400 border border-slate-500/50 px-1.5 py-0.5 rounded uppercase">{score} Pts</span>}
