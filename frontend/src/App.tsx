@@ -118,7 +118,7 @@ function App() {
   const runScoringEngine = async (showFeedback = false) => {
     setIsScoring(true);
     try {
-      const res = await axios.get(`${BACKEND_URL}/api/v4/screener/start-scan`, { headers: { "Bypass-Tunnel-Reminder": "true" } });
+      await axios.get(`${BACKEND_URL}/api/v4/screener/start-scan`, { headers: { "Bypass-Tunnel-Reminder": "true" } });
       if (showFeedback) {
           alert(`[스캔 시작] 전체 2,500개 종목 스캔을 백그라운드에서 시작합니다. 잠시만 기다려주세요...`);
       }
