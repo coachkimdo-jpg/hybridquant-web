@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShieldAlert, Zap, TrendingUp, Search, Activity, AlertTriangle, Shield, Layers, Crosshair, Bot, Bell } from 'lucide-react';
+import { ShieldAlert, Zap, TrendingUp, Search, Activity, AlertTriangle, Shield, Layers, Crosshair, Bot, Bell, Settings, Wifi, WifiOff } from 'lucide-react';
 import TradingChart from './components/TradingChart';
 import axios from 'axios';
 
@@ -7,6 +7,12 @@ import axios from 'axios';
 // 배포 환경에서는 VITE_BACKEND_URL 환경 변수를 사용하고, 로컬에서는 8000번 포트를 사용합니다.
 // Render 환경 등에서 VITE_BACKEND_URL 설정이 누락되거나 잘못되었을 때를 대비한 자동 감지(Auto-detect) 폴백을 포함합니다.
 const getBackendUrl = () => {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    const savedUrl = window.localStorage.getItem('VITE_BACKEND_URL');
+    if (savedUrl) {
+      return savedUrl;
+    }
+  }
   const envUrl = import.meta.env.VITE_BACKEND_URL;
   if (envUrl && envUrl !== 'http://localhost:8000') {
     return envUrl;
@@ -92,6 +98,12 @@ class ChartErrorBoundary extends React.Component<{children: React.ReactNode}, {h
 
 function App() {
 
+  // Backend URL Connection States
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [backendUrlInput, setBackendUrlInput] = useState(BACKEND_URL);
+  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'error' | 'testing' | 'idle'>('idle');
+  const [connectionErrorMessage, setConnectionErrorMessage] = useState('');
+
   const [chartDataPayload, setChartDataPayload] = useState<any>(null);
   const [systemStatus, setSystemStatus] = useState<any>(null);
   const [brokerBalance, setBrokerBalance] = useState<number>(100000000);
@@ -118,21 +130,67 @@ function App() {
   const [scanProgress, setScanProgress] = useState<{total: number, current: number, is_running: boolean}>({total: 0, current: 0, is_running: false});
   const [scanStartTime, setScanStartTime] = useState<number | null>(null);
 
-  // Load ALL tickers once
+  // Load ALL tickers once and test connection
   useEffect(() => {
     const fetchAllStocks = async () => {
+      setConnectionStatus('testing');
       try {
-        const res = await axios.get(`${BACKEND_URL}/api/v4/stocks`, { headers: { "Bypass-Tunnel-Reminder": "true" } });
+        const res = await axios.get(`${BACKEND_URL}/api/v4/stocks`, { 
+          headers: { "Bypass-Tunnel-Reminder": "true" },
+          timeout: 6000
+        });
         if (res.data) {
           setAllTickerNames(res.data);
-          // Watchlist will be populated by the scoring engine
+          setConnectionStatus('connected');
         }
-      } catch (err) {
-        console.error(err);
+      } catch (err: any) {
+        console.error("Backend connection failed:", err);
+        setConnectionStatus('error');
+        setConnectionErrorMessage(err.message || 'connection failed');
+        // Automatically open settings modal if on Render and connection failed
+        if (typeof window !== 'undefined' && window.location.hostname.includes('onrender.com')) {
+          setShowSettingsModal(true);
+        }
       }
     };
     fetchAllStocks();
   }, []);
+
+  const handleSaveBackendUrl = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setConnectionStatus('testing');
+    try {
+      let targetUrl = backendUrlInput.trim();
+      if (targetUrl.endsWith('/')) {
+        targetUrl = targetUrl.slice(0, -1);
+      }
+      
+      // Ping check
+      await axios.get(`${targetUrl}/api/v4/stocks`, { 
+        headers: { "Bypass-Tunnel-Reminder": "true" },
+        timeout: 6000 
+      });
+      
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem('VITE_BACKEND_URL', targetUrl);
+      }
+      
+      setConnectionStatus('connected');
+      setShowSettingsModal(false);
+      window.location.reload();
+    } catch (err: any) {
+      console.error("Failed to connect to custom backend:", err);
+      setConnectionStatus('error');
+      setConnectionErrorMessage(`Connection test failed: ${err.message}. Please verify the URL.`);
+    }
+  };
+
+  const handleResetBackendUrl = () => {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.removeItem('VITE_BACKEND_URL');
+    }
+    window.location.reload();
+  };
 
   // Handle Scoring Engine Run
   const runScoringEngine = async (showFeedback = false) => {
@@ -541,6 +599,20 @@ function App() {
               className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-1.5 rounded-full text-sm font-medium transition-colors shadow-[0_0_15px_rgba(37,99,235,0.3)]">
               Connect Broker
             </button>
+            <button 
+              onClick={() => {
+                setBackendUrlInput(BACKEND_URL);
+                setShowSettingsModal(true);
+              }}
+              className={`p-1.5 border rounded-full transition-colors flex items-center justify-center ${
+                connectionStatus === 'connected' 
+                  ? 'bg-slate-800/80 hover:bg-slate-700/80 border-slate-700 text-slate-350 hover:text-white' 
+                  : 'bg-rose-950/20 hover:bg-rose-900/30 border-rose-900/50 text-rose-400 animate-pulse'
+              }`}
+              title="Backend Server Settings"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
           </div>
         </div>
       </header>
@@ -742,6 +814,97 @@ function App() {
         </aside>
 
       </main>
+
+      {/* Backend Settings Modal */}
+      {showSettingsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
+          <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden transform scale-in transition-all text-slate-100">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-855 bg-slate-950/40">
+              <div className="flex items-center space-x-2">
+                <Settings className="w-4 h-4 text-blue-400" />
+                <h3 className="text-sm font-bold text-slate-200">백엔드 서버 연결 설정 (Backend Connection)</h3>
+              </div>
+              <button 
+                onClick={() => setShowSettingsModal(false)}
+                className="text-slate-500 hover:text-slate-350 text-sm font-semibold transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <form onSubmit={handleSaveBackendUrl} className="p-6 space-y-4">
+              <div className="space-y-2">
+                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                  백엔드 서버 주소 (Backend API URL)
+                </label>
+                <div className="relative">
+                  <input
+                    type="url"
+                    value={backendUrlInput}
+                    onChange={(e) => setBackendUrlInput(e.target.value)}
+                    placeholder="https://joosik-backend-xxxx.onrender.com"
+                    required
+                    className="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-slate-200 transition-all font-mono"
+                  />
+                  <div className="absolute right-3.5 top-1/2 transform -translate-y-1/2 flex items-center">
+                    {connectionStatus === 'connected' && <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></span>}
+                    {connectionStatus === 'error' && <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.5)]"></span>}
+                    {connectionStatus === 'testing' && <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse shadow-[0_0_8px_rgba(245,158,11,0.5)]"></span>}
+                  </div>
+                </div>
+                <p className="text-[10px] text-slate-500 leading-relaxed">
+                  Render 대시보드에서 <strong>joosik-backend</strong> 서비스 주소를 복사하여 입력해 주세요. (예: <code className="text-blue-400 bg-slate-950/80 px-1 py-0.5 rounded font-mono">https://joosik-backend-c6tc.onrender.com</code>)
+                </p>
+              </div>
+
+              {/* Status Alert */}
+              {connectionStatus === 'error' && (
+                <div className="flex items-start space-x-2.5 p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-400 text-xs">
+                  <WifiOff className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                  <div className="space-y-1">
+                    <p className="font-bold">서버 연결 실패</p>
+                    <p className="text-slate-400 leading-normal text-[11px]">{connectionErrorMessage}</p>
+                  </div>
+                </div>
+              )}
+
+              {connectionStatus === 'connected' && (
+                <div className="flex items-center space-x-2.5 p-3.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-400 text-xs font-semibold">
+                  <Wifi className="w-4 h-4 flex-shrink-0 text-emerald-400 animate-pulse" />
+                  <p>백엔드 서버와 성공적으로 연결되었습니다!</p>
+                </div>
+              )}
+
+              {connectionStatus === 'testing' && (
+                <div className="flex items-center space-x-2.5 p-3.5 bg-slate-800/50 border border-slate-700/50 rounded-xl text-slate-400 text-xs font-medium">
+                  <div className="w-3.5 h-3.5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin flex-shrink-0"></div>
+                  <p>서버 연결 상태 테스트 중...</p>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex space-x-3 pt-4 border-t border-slate-800/80">
+                <button
+                  type="button"
+                  onClick={handleResetBackendUrl}
+                  className="flex-1 px-4 py-2 bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-bold rounded-xl transition-all border border-slate-700/40"
+                >
+                  기본값 초기화
+                </button>
+                <button
+                  type="submit"
+                  disabled={connectionStatus === 'testing'}
+                  className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-all shadow-lg shadow-blue-500/20"
+                >
+                  연결 테스트 및 저장
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
