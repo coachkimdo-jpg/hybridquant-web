@@ -1,0 +1,13 @@
+# Global Environments
+.env
+.env.*
+
+# Node
+node_modules/
+
+# Python
+venv/
+__pycache__/
+
+# OS
+.DS_Store
