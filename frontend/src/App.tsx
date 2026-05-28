@@ -79,6 +79,15 @@ function App() {
   const [activeTicker, setActiveTicker] = useState<string>('005930');
   const [rightTab, setRightTab] = useState<'watchlist' | 'all'>('watchlist');
   const [searchQuery, setSearchQuery] = useState('');
+  const [topSearch, setTopSearch] = useState('');
+
+  const handleTopSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (topSearch) {
+      setActiveTicker(topSearch);
+      setTopSearch('');
+    }
+  };
   const [loading, setLoading] = useState(true);
 
   const [allTickerNames, setAllTickerNames] = useState<Record<string, string>>({});
@@ -452,15 +461,19 @@ function App() {
           </div>
           
           <div className="flex items-center space-x-4">
-            <div className="relative">
+            <form onSubmit={handleTopSearch} className="relative">
               <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" />
               <input 
                 type="text" 
-                placeholder="Search ticker..." 
+                value={topSearch}
+                onChange={(e) => setTopSearch(e.target.value)}
+                placeholder="Search ticker (e.g. 005930)..." 
                 className="bg-slate-800/50 border border-slate-700 text-sm rounded-full pl-9 pr-4 py-1.5 focus:outline-none focus:border-blue-500 transition-colors"
               />
-            </div>
-            <button className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-1.5 rounded-full text-sm font-medium transition-colors shadow-[0_0_15px_rgba(37,99,235,0.3)]">
+            </form>
+            <button 
+              onClick={() => alert("증권사 연동 기능은 프리미엄 기능으로, 현재 준비 중입니다!")}
+              className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-1.5 rounded-full text-sm font-medium transition-colors shadow-[0_0_15px_rgba(37,99,235,0.3)]">
               Connect Broker
             </button>
           </div>
