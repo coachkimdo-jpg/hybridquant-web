@@ -150,7 +150,7 @@ def bg_scan_market(selected_sectors=None):
     # Use ThreadPoolExecutor for highly concurrent network fetching (up to 15 concurrent threads)
     max_workers = 15
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(scan_single_ticker, ticker, name) for ticker, name in all_stocks.items()]
+        futures = [executor.submit(scan_single_ticker, ticker, all_stocks[ticker]) for ticker in keys]
         for i, future in enumerate(as_completed(futures)):
             if not scan_status["is_running"]:
                 break
