@@ -44,6 +44,8 @@ def bg_scan_market():
 
     import json
     import os
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    
     file_path = os.path.join(os.path.dirname(__file__), "tickers.json")
     if not os.path.exists(file_path):
         scan_status["is_running"] = False
@@ -55,12 +57,10 @@ def bg_scan_market():
     keys = list(all_stocks.keys())
     scan_status["total"] = len(keys)
     
-    db = SessionLocal()
-    
-    for i, ticker in enumerate(keys):
+    def scan_single_ticker(ticker: str, name: str):
         if not scan_status["is_running"]:
-            break
-        
+            return
+        db = SessionLocal()
         try:
             chart_res = get_v2_chart_data(ticker, db)
             cdata = chart_res.get("chart_data", [])
@@ -98,17 +98,24 @@ def bg_scan_market():
                     
                 if score >= 4:
                     scan_status["results"][ticker] = {
-                        "name": all_stocks[ticker],
+                        "name": name,
                         "score": score,
                         "passes": passes
                     }
-        except Exception:
-            pass
-            
-        scan_status["current"] = i + 1
-        time.sleep(0.01) # Small sleep to prevent blocking
-        
-    db.close()
+        except Exception as e:
+            print(f"Error scanning ticker {ticker}: {e}")
+        finally:
+            db.close()
+
+    # Use ThreadPoolExecutor for highly concurrent network fetching (up to 15 concurrent threads)
+    max_workers = 15
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(scan_single_ticker, ticker, name) for ticker, name in all_stocks.items()]
+        for i, future in enumerate(as_completed(futures)):
+            if not scan_status["is_running"]:
+                break
+            scan_status["current"] = i + 1
+
     scan_status["is_running"] = False
 
 @app.get("/api/v4/screener/start-scan")

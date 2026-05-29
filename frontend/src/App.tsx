@@ -137,7 +137,7 @@ function App() {
       try {
         const res = await axios.get(`${BACKEND_URL}/api/v4/stocks`, { 
           headers: { "Bypass-Tunnel-Reminder": "true" },
-          timeout: 6000
+          timeout: 50000
         });
         if (res.data) {
           setAllTickerNames(res.data);
@@ -168,7 +168,7 @@ function App() {
       // Ping check
       await axios.get(`${targetUrl}/api/v4/stocks`, { 
         headers: { "Bypass-Tunnel-Reminder": "true" },
-        timeout: 6000 
+        timeout: 50000 
       });
       
       if (typeof window !== 'undefined' && window.localStorage) {
@@ -878,9 +878,14 @@ function App() {
               )}
 
               {connectionStatus === 'testing' && (
-                <div className="flex items-center space-x-2.5 p-3.5 bg-slate-800/50 border border-slate-700/50 rounded-xl text-slate-400 text-xs font-medium">
-                  <div className="w-3.5 h-3.5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin flex-shrink-0"></div>
-                  <p>서버 연결 상태 테스트 중...</p>
+                <div className="flex items-start space-x-2.5 p-3.5 bg-indigo-500/10 border border-indigo-500/20 rounded-xl text-indigo-400 text-xs font-medium">
+                  <div className="w-3.5 h-3.5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin flex-shrink-0 mt-0.5"></div>
+                  <div className="space-y-1">
+                    <p className="font-bold">서버 연결 상태 테스트 중...</p>
+                    <p className="text-slate-400 text-[10px] leading-relaxed font-normal">
+                      Render 무료 서버 특성상 장시간 미사용 시 서버가 휴면 상태로 전환됩니다. 깨어나는 데 <strong>최대 50초</strong> 정도 소요될 수 있으니 잠시만 기다려 주세요!
+                    </p>
+                  </div>
                 </div>
               )}
 
