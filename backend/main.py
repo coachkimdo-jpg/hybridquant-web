@@ -418,6 +418,7 @@ def get_v2_chart_data(ticker: str, db: Session = Depends(get_db)):
     df.ta.macd(append=True)
     df.ta.rsi(length=14, append=True)
     df.ta.atr(length=14, append=True)
+    df.ta.cci(length=20, append=True)
     
     # AVWAP
     df['Typical_Price'] = (df['High'] + df['Low'] + df['Close']) / 3
@@ -478,6 +479,9 @@ def get_v2_chart_data(ticker: str, db: Session = Depends(get_db)):
         macd_col = [c for c in df.columns if c.startswith('MACD_')][0] if any(c.startswith('MACD_') for c in df.columns) else None
         macds_col = [c for c in df.columns if c.startswith('MACDs_')][0] if any(c.startswith('MACDs_') for c in df.columns) else None
         macdh_col = [c for c in df.columns if c.startswith('MACDh_')][0] if any(c.startswith('MACDh_') for c in df.columns) else None
+        
+        # CCI column is usually CCI_20_0.015
+        cci_col = [c for c in df.columns if c.startswith('CCI_')][0] if any(c.startswith('CCI_') for c in df.columns) else None
 
         chart_data.append({
             "time": date_str,
@@ -496,6 +500,7 @@ def get_v2_chart_data(ticker: str, db: Session = Depends(get_db)):
             "macd": row[macd_col] if macd_col else 0,
             "macd_signal": row[macds_col] if macds_col else 0,
             "macd_hist": row[macdh_col] if macdh_col else 0,
+            "cci_20": row[cci_col] if cci_col else 0,
             "chandelier_exit": row.get('Chandelier_Exit', 0)
         })
 

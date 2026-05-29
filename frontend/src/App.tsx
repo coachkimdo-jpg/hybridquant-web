@@ -296,31 +296,65 @@ function App() {
     const latest = chartDataPayload.chart_data[chartDataPayload.chart_data.length - 1];
     const poc = chartDataPayload.poc_price;
 
+    const cci = latest.cci_20 !== undefined ? latest.cci_20 : 0;
+    
+    // Check if CCI recovered from below -100 to above -100 in the last 5 days
+    const cdata = chartDataPayload.chart_data;
+    let cciRecovered = false;
+    if (cdata.length >= 5) {
+      const pastCcis = cdata.slice(-5, -1).map((d: any) => d.cci_20 !== undefined ? d.cci_20 : 0);
+      if (pastCcis.some((v: number) => v <= -100) && cci > -100) {
+        cciRecovered = true;
+      }
+    }
+
+    // Determine current market trend regime (상승 추세 vs 하락 추세)
+    // 상승 추세: 주가가 200EMA 위, 20EMA > 50EMA, 주가가 AVWAP 또는 POC 위
+    const isUpwardTrend = latest.close > latest.ema_200 && latest.ema_20 > latest.ema_50 && (latest.close > latest.avwap || latest.close > poc);
+
     const isStructSafe = latest.close > latest.avwap || latest.close > poc;
     const isMomSafe = latest.ema_20 > latest.ema_50 || latest.macd_hist > 0;
     const isPatSafe = latest.chandelier_exit > 0 && latest.close > latest.chandelier_exit;
 
-    const safeCount = (isStructSafe ? 1 : 0) + (isMomSafe ? 1 : 0) + (isPatSafe ? 1 : 0);
+    // Advanced Composite Scoring (out of 10 points)
+    let cciPoints = 0;
+    if (cci > 100) cciPoints += 2;
+    else if (cci > 0) cciPoints += 1;
+    
+    if (cci < -100) cciPoints -= 1;
+    if (cci > 200) cciPoints -= 1; // penalty for short-term overbought
+    if (cciRecovered) cciPoints += 1; // bonus for rebound/pullback recovery
+
+    // Make sure momentum score doesn't exceed 5 or fall below 0
+    let momPillPoints = (latest.ema_20 > latest.ema_50 ? 1 : 0) + (latest.macd_hist > 0 ? 1 : 0) + cciPoints;
+    momPillPoints = Math.max(0, Math.min(5, momPillPoints));
+
+    const structPillPoints = (latest.close > latest.avwap ? 1 : 0) + (latest.close > poc ? 1 : 0);
+    const riskPillPoints = (latest.chandelier_exit > 0 && latest.close > latest.chandelier_exit) ? 2 : 0;
+    const fundPillPoints = 1;
+
+    const totalCompositeScore = fundPillPoints + structPillPoints + momPillPoints + riskPillPoints;
+
     let opinionTitle = "";
     let opinionText = "";
     let opinionColor = "";
 
-    if (safeCount === 3) {
-      opinionTitle = "적극 매수 (Strong Buy)";
-      opinionText = "시장 구조, 모멘텀, 리스크 방어선이 모두 완벽한 상승 추세를 가리키고 있습니다. 지금이 진입하기 가장 좋은 타이밍입니다.";
-      opinionColor = "bg-emerald-900/30 border-emerald-500/50 text-emerald-400";
-    } else if (safeCount === 2) {
-      opinionTitle = "분할 매수 / 관망 (Hold & Watch)";
-      opinionText = "대체로 긍정적인 흐름이나 일부 지표가 아직 완벽하지 않습니다. 소액으로 분할 매수하거나 확실한 돌파를 기다리는 것이 좋습니다.";
-      opinionColor = "bg-yellow-900/30 border-yellow-500/50 text-yellow-400";
-    } else if (safeCount === 1) {
-      opinionTitle = "주의 요망 (Caution)";
-      opinionText = "대부분의 지표가 하락세를 가리키고 있습니다. 신규 진입은 매우 위험하며, 보유 중이라면 리스크 관리에 집중해야 합니다.";
-      opinionColor = "bg-orange-900/30 border-orange-500/50 text-orange-400";
+    if (totalCompositeScore >= 9) {
+      opinionTitle = "👑 적극 매수 / 추세 추종 (Strong Buy & Trend Following)";
+      opinionText = "시장 구조, 모멘텀(CCI 강세), 리스크 방어선이 모두 강력한 상승 에너지와 견고한 지지를 나타냅니다. 모멘텀이 최대로 활성화된 핵심 주도주 국면으로 즉각적인 추세 추종 진입이 유리합니다.";
+      opinionColor = "bg-emerald-950/40 border-emerald-500/50 text-emerald-400";
+    } else if (totalCompositeScore >= 7) {
+      opinionTitle = "📈 분할 매수 / 눌림목 진입 (Buy on Dips / Hold)";
+      opinionText = "상승 추세가 안전하게 유지되는 상태에서, CCI 지표가 0선이나 -100 근처까지 하락 조을 받았다가 반등하거나 눌림목을 형성하는 건전한 조정 구간입니다. 저점 분할 매수 타이밍으로 가장 적합합니다.";
+      opinionColor = "bg-blue-950/40 border-blue-500/50 text-blue-400";
+    } else if (totalCompositeScore >= 4) {
+      opinionTitle = "⚠️ 주의 / 관망 요망 (Caution / Wait & See)";
+      opinionText = "단기 하락 모멘텀이 강하게 작용 중이거나 과열 우려가 있어 진입을 잠시 멈추고 관망해야 하는 단계입니다. CCI 지표가 -100을 복구하고 주가가 핵심 이평선 또는 AVWAP을 안착하는 것을 먼저 확인해야 합니다.";
+      opinionColor = "bg-amber-950/40 border-amber-500/50 text-amber-400";
     } else {
-      opinionTitle = "매수 금지 / 매도 (Strong Sell)";
-      opinionText = "모든 지표가 붕괴되었습니다. 즉각적인 매도 또는 진입을 절대적으로 피해야 하는 구간입니다.";
-      opinionColor = "bg-rose-900/30 border-rose-500/50 text-rose-400";
+      opinionTitle = "❌ 매수 금지 / 리스크 관리 (Strong Sell / Avoid)";
+      opinionText = "주요 하방 지지선이 이탈하고 CCI가 -100 이하의 하락 모멘텀 깊은 곳에 갇혀 있습니다. 단순 낙폭과대로 매수(칼날 잡기)하는 것을 금하며, 즉각적인 진입 보류 및 보유 물량의 리스크 관리가 절대적으로 필요합니다.";
+      opinionColor = "bg-rose-950/40 border-rose-500/50 text-rose-400";
     }
 
     return (
@@ -347,12 +381,19 @@ function App() {
           </div>
 
           <div className={`p-3 rounded-lg border ${isMomSafe ? 'bg-emerald-900/20 border-emerald-500/30' : 'bg-slate-800/30 border-slate-700/50'}`}>
-            <div className={`flex items-center font-bold text-xs mb-2 ${isMomSafe ? 'text-emerald-400' : 'text-slate-500'}`}><Activity className="w-4 h-4 mr-1"/> 모멘텀</div>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              {isMomSafe 
-                ? "단기 이평선(20일)이 중기 이평선(50일)을 돌파했거나, MACD 에너지가 양(+)으로 전환되며 상승 추세를 탔습니다."
-                : "이평선 역배열 또는 MACD 음수 구간으로 단기적인 하락 모멘텀이 강하게 작용 중입니다."}
-            </p>
+            <div className={`flex items-center font-bold text-xs mb-2 ${isMomSafe ? 'text-emerald-400' : 'text-slate-500'}`}><Activity className="w-4 h-4 mr-1"/> 모멘텀 (CCI 반영)</div>
+            <div className="text-xs text-slate-400 leading-relaxed space-y-1">
+              <p>• <strong>CCI(20):</strong> <span className={`font-bold ${cci > 100 ? "text-emerald-400" : cci < -100 ? "text-rose-400" : "text-blue-400"}`}>{cci.toFixed(1)}</span> ({
+                cci > 200 ? "단기 과열 경계" :
+                cci > 100 ? "상승 모멘텀 강세" :
+                cci > 0 ? "평균 이상 강세" :
+                cci < -200 ? "단기 투매 과매도" :
+                cci < -100 ? "하락 모멘텀 강세" :
+                "평균 이하 약세"
+              })</p>
+              <p>• {isMomSafe ? "20EMA가 50EMA 위에 있거나 MACD 에너지가 상승 흐름을 보이고 있습니다." : "이평선 역배열 또는 MACD 음수 구간으로 하방 힘이 작용하고 있습니다."}</p>
+              {cciRecovered && <p className="text-emerald-400 text-[10px] font-semibold animate-pulse">• CCI -100 선 탈출 (눌림 반등 확인 신호)</p>}
+            </div>
           </div>
 
           <div className={`p-3 rounded-lg border ${isPatSafe ? 'bg-rose-900/20 border-rose-500/30' : 'bg-slate-800/30 border-slate-700/50'}`}>
@@ -366,188 +407,237 @@ function App() {
         </div>
 
         {/* 💡 Comprehensive Opinion */}
-        <div className={`mt-4 p-4 rounded-lg border flex items-start ${opinionColor}`}>
-          <div className="mr-3 mt-0.5">
-            {safeCount === 3 ? <TrendingUp className="w-5 h-5" /> : 
-             safeCount === 2 ? <Activity className="w-5 h-5" /> : 
-             safeCount === 1 ? <AlertTriangle className="w-5 h-5" /> : 
-             <ShieldAlert className="w-5 h-5" />}
+        <div className={`mt-4 p-4 rounded-lg border flex flex-col md:flex-row md:items-start ${opinionColor} gap-3`}>
+          <div className="flex-shrink-0">
+            {totalCompositeScore >= 9 ? <TrendingUp className="w-6 h-6" /> : 
+             totalCompositeScore >= 7 ? <Activity className="w-6 h-6" /> : 
+             totalCompositeScore >= 4 ? <AlertTriangle className="w-6 h-6" /> : 
+             <ShieldAlert className="w-6 h-6" />}
           </div>
-          <div>
-            <h4 className="font-bold text-sm mb-1">💡 종합 의견: {opinionTitle}</h4>
+          <div className="flex-1 space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h4 className="font-bold text-sm">💡 종합 의견: {opinionTitle}</h4>
+              <div className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-950/40 border border-slate-700">
+                Composite Score: <span className="font-mono">{totalCompositeScore}/10</span>
+              </div>
+            </div>
             <p className="text-xs opacity-90 leading-relaxed">{opinionText}</p>
+            
+            <div className="p-3 bg-slate-950/30 rounded-lg border border-white/5 space-y-1 text-[11px] text-slate-350">
+              <p className="font-bold text-slate-200">🔍 CCI 지표 연계 분석 요약</p>
+              {isUpwardTrend ? (
+                <div className="space-y-1">
+                  <p>• <strong>현재 국면:</strong> 📈 장기 상승 추세 (Bullish Regime)</p>
+                  {cci > 200 && <p className="text-amber-400 font-bold">• [주의] CCI {cci.toFixed(1)} (단기 과열): 상승장이지만 신규 추격 매수는 늦을 수 있으므로 이격 조정을 대기해야 합니다.</p>}
+                  {cci > 100 && cci <= 200 && <p className="text-emerald-400 font-semibold">• [강한 매수] CCI {cci.toFixed(1)} (+100 위): 모멘텀이 매우 강력한 구간으로 추세 추종 매매에 최적의 시기입니다.</p>}
+                  {cci <= 100 && cci >= -100 && <p className="text-blue-400">• [눌림목/관망] CCI {cci.toFixed(1)} (평균 조정): 주가가 20EMA/AVWAP 지지를 받으며 CCI가 다시 0선 또는 +100을 재돌파하는 시점이 최적의 진입 찬스입니다.</p>}
+                  {cci < -100 && <p className="text-rose-400 font-semibold">• [과매도 조정] CCI {cci.toFixed(1)} (-100 이하): 상승 추세 중 단기 깊은 조정 상태입니다. 양봉 반등과 CCI 복구를 기다리는 것이 유리합니다.</p>}
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <p>• <strong>현재 국면:</strong> 📉 단기 하락/조정 국면 (Bearish Regime)</p>
+                  {cci < -100 && <p className="text-rose-400 font-bold">• [매수 금지] CCI {cci.toFixed(1)} (-100 이하): 하락 압력이 매우 강합니다. 칼날 잡기를 피하고 바닥 신호가 확정될 때까지 대기하세요.</p>}
+                  {cciRecovered && <p className="text-emerald-400 font-semibold">• [반등 신호] CCI {cci.toFixed(1)} (-100 상방 탈출): 단기 기술적 반등 가능성이 열립니다. 20EMA 또는 AVWAP 돌파를 2차 조건으로 확인하세요.</p>}
+                  {cci >= 0 && cci < 100 && <p className="text-amber-400">• [압력 완화] CCI {cci.toFixed(1)} (0선 회복): 하락 세력이 누그러지고 바닥을 다지는 신호입니다. 거래대금 증가 여부가 결정적입니다.</p>}
+                  {cci >= 100 && <p className="text-emerald-400 font-bold">• [추세 전환] CCI {cci.toFixed(1)} (+100 돌파): 하락 추세 탈출 및 상승 추세 전환 에너지가 매우 강하게 유입되는 신호입니다.</p>}
+                </div>
+              )}
+            </div>
           </div>
         </div>
+      </div>
+    );
+  };
 
-        {/* 🎯 Recommended Prices Section */}
-        {latest.chandelier_exit > 0 && systemStatus && (() => {
-          const poc = chartDataPayload?.poc_price || 0;
-          let suggested_entry = latest.close;
-          let entry_text = "";
-          
-          if (safeCount === 3) {
-              suggested_entry = latest.close;
-              entry_text = "강한 모멘텀 상태로 현재가 부근 즉시 진입 (돌파 매수)";
-          } else {
-              if (systemStatus.regime === 'Recovery') {
-                  suggested_entry = Math.max(latest.ema_60 || 0, latest.ema_120 || 0, poc) || latest.close;
-                  entry_text = "60/120EMA 지지 및 양봉 전환 시 (눌림 매수)";
-              } else if (systemStatus.regime === 'Broad Bull' || systemStatus.regime === 'Narrow Bull') {
-                  suggested_entry = Math.max(latest.ema_20 || 0, latest.avwap || 0, poc) || latest.close;
-                  entry_text = "20EMA/VWAP 지지 및 양봉 전환 시 (눌림 매수)";
-              } else {
-                  suggested_entry = latest.close;
-                  entry_text = "신규 진입 보류 권장 (리스크 관리 구간)";
-              }
-          }
-          
-          if (suggested_entry >= latest.close) suggested_entry = latest.close;
-          
-          let stop_loss = latest.chandelier_exit;
-          if (stop_loss >= suggested_entry) {
-              stop_loss = suggested_entry * 0.95; // 5% stop loss for pullback
-          }
-          
-          const risk = suggested_entry - stop_loss;
-          const target_1r = suggested_entry + risk;
-          const target_2r = suggested_entry + risk * 2;
-          const target_08r = suggested_entry + risk * 0.8;
-          const target_15r = suggested_entry + risk * 1.5;
+  const renderTradingAdvice = () => {
+    if (!chartDataPayload || !chartDataPayload.chart_data || chartDataPayload.chart_data.length === 0) return null;
+    const latest = chartDataPayload.chart_data[chartDataPayload.chart_data.length - 1];
+    const poc = chartDataPayload.poc_price;
 
-          return (
-          <div className="mt-4 p-4 border border-slate-800/50 flex flex-col gap-4 bg-slate-900/30 rounded-lg">
-            <h4 className="font-bold text-sm text-slate-300 flex items-center justify-between">
-              <div className="flex items-center">
-                <Crosshair className="w-4 h-4 mr-2 text-indigo-400" />
-                장세 맞춤형 매매 플랜 ({systemStatus.regime || '분석 중...'})
-              </div>
-              <div className="flex items-center space-x-3">
-                <div className="bg-slate-800/50 px-3 py-1 rounded-full border border-slate-700/50 hidden sm:flex items-center">
-                  <span className="text-[10px] text-slate-400 mr-2 uppercase tracking-wider">현재가</span>
-                  <span className="text-sm font-bold text-white">₩{latest.close.toLocaleString()}</span>
-                </div>
-                <button 
-                  onClick={async () => {
-                  let successCount = 0;
-                  const t1 = Math.floor(target_1r);
-                  if (await registerAlert(activeTicker, t1, 'above', '1차 목표가 도달! 일부 익절을 고려하세요.')) successCount++;
-                  
-                  const t2 = Math.floor(target_2r);
-                  if (await registerAlert(activeTicker, t2, 'above', '2차 목표가 도달! 추가 익절을 고려하세요.')) successCount++;
-                  
-                  const sl = Math.floor(stop_loss);
-                  if (await registerAlert(activeTicker, sl, 'below', '손절가 이탈! 리스크 관리가 필요합니다.')) successCount++;
-                  
-                  if (successCount > 0) alert(`[알림 등록] ${activeTicker}의 목표가 및 손절가 알림이 텔레그램으로 전송되도록 설정되었습니다.`);
-                }}
-                className="flex items-center text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded transition-colors"
-              >
-                <Bell className="w-3.5 h-3.5 mr-1 text-amber-400" /> 모두 알람 켜기
-              </button>
-              </div>
-            </h4>
-            
-            {systemStatus.regime === 'Bear' ? (
-              <div className="text-rose-400 bg-rose-900/20 p-3 rounded text-sm text-center border border-rose-500/30">
-                <AlertTriangle className="w-4 h-4 inline mr-1" />
-                현재 하락장(Bear) 국면입니다. 원칙적으로 신규 매수를 금지하며, 기존 보유 종목은 리스크 관리에 집중하세요.
-              </div>
-            ) : (
-              <div className="flex flex-col gap-4">
-                {/* Entries */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700">
-                    <span className="text-[10px] text-slate-500 uppercase tracking-wider block mb-1">1차 매수가 (1st Entry)</span>
-                    <span className="text-sm font-bold text-blue-400 block mb-1">
-                      ₩{Math.floor(suggested_entry).toLocaleString()} 부근
-                    </span>
-                    <span className="text-xs text-slate-400">
-                      {entry_text}
-                    </span>
-                  </div>
-                  
-                  <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700">
-                    <span className="text-[10px] text-slate-500 uppercase tracking-wider block mb-1">2차 매수가 (2nd Entry)</span>
-                    <span className="text-sm font-bold text-blue-400 block mb-1">
-                      {systemStatus.regime === 'Broad Bull' ? '전고점 또는 POC 돌파 시' : '추가 진입 보류 권장 (리스크 관리)'}
-                    </span>
-                    <span className="text-xs text-slate-400">
-                      {systemStatus.regime === 'Broad Bull' ? '15분봉 종가 지지 안착 확인 후 진입' : '현재 장세에서는 피라미딩을 제한합니다'}
-                    </span>
-                  </div>
-                </div>
+    const cci = latest.cci_20 !== undefined ? latest.cci_20 : 0;
+    
+    const cdata = chartDataPayload.chart_data;
+    let cciRecovered = false;
+    if (cdata.length >= 5) {
+      const pastCcis = cdata.slice(-5, -1).map((d: any) => d.cci_20 !== undefined ? d.cci_20 : 0);
+      if (pastCcis.some((v: number) => v <= -100) && cci > -100) {
+        cciRecovered = true;
+      }
+    }
 
-                {/* Targets & Stop Loss */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-slate-800 pt-4">
-                  <div>
-                    <span className="text-[10px] text-slate-500 uppercase tracking-wider block mb-0.5">
-                      1차 목표가 ({systemStatus.regime === 'Recovery' ? '0.8R~1R' : '1R'})
-                    </span>
-                    <span className="text-sm font-bold text-emerald-400 block mb-1">
-                      {systemStatus.regime === 'Recovery' ? (
-                        `₩${Math.floor(target_08r).toLocaleString()} ~ ₩${Math.floor(target_1r).toLocaleString()}`
-                      ) : (
-                        `₩${Math.floor(target_1r).toLocaleString()}`
-                      )}
-                    </span>
-                    <span className="text-[11px] text-slate-400">
-                      {systemStatus.regime === 'Broad Bull' ? '도달 시 30~50% 익절 (리스크 회수)' : 
-                       systemStatus.regime === 'Narrow Bull' ? '도달 시 50% 적극 익절 (수익 우선)' :
-                       '빠른 50% 이상 익절 (욕심 자제)'}
-                    </span>
-                  </div>
-                  
-                  <div className="md:border-l border-slate-700 md:pl-4">
-                    <span className="text-[10px] text-slate-500 uppercase tracking-wider block mb-0.5">
-                      2차 목표가 ({systemStatus.regime === 'Narrow Bull' ? '1.5R~2R' : systemStatus.regime === 'Recovery' ? '저항선' : '2R'})
-                    </span>
-                    <span className="text-sm font-bold text-emerald-400 block mb-1">
-                      {systemStatus.regime === 'Narrow Bull' ? (
-                         `₩${Math.floor(target_15r).toLocaleString()} ~`
-                      ) : systemStatus.regime === 'Recovery' ? (
-                         `120/200EMA 부근`
-                      ) : (
-                         `₩${Math.floor(target_2r).toLocaleString()}`
-                      )}
-                    </span>
-                    <span className="text-[11px] text-slate-400">
-                      {systemStatus.regime === 'Broad Bull' ? '도달 시 20~30% 익절 (목표 달성)' : 
-                       systemStatus.regime === 'Narrow Bull' ? '도달 시 추가 익절 (잔량은 짧게)' :
-                       '박스권 상단 또는 이평 저항선 익절'}
-                    </span>
-                  </div>
-                  
-                  <div className="md:border-l border-slate-700 md:pl-4">
-                    <span className="text-[10px] text-slate-500 uppercase tracking-wider block mb-0.5">기계적 손절가 & 최종 청산</span>
-                    <span className="text-sm font-bold text-rose-400 block mb-1">
-                      ₩{Math.floor(stop_loss).toLocaleString()}
-                    </span>
-                    <span className="text-[11px] text-slate-400">
-                      최초 손절 이탈 시 전량 매도.<br/>
-                      수익 중엔 Chandelier/20EMA 이탈 시 잔량 청산.
-                    </span>
-                  </div>
-                </div>
+    const cciPoints = (cci > 100 ? 2 : (cci > 0 ? 1 : 0)) + (cci < -100 ? -1 : 0) + (cci > 200 ? -1 : 0) + (cciRecovered ? 1 : 0);
+    let momPillPoints = (latest.ema_20 > latest.ema_50 ? 1 : 0) + (latest.macd_hist > 0 ? 1 : 0) + cciPoints;
+    momPillPoints = Math.max(0, Math.min(5, momPillPoints));
 
-                <div className="flex justify-end mt-2">
-                  <button 
-                    onClick={() => {
-                      const riskAmt = brokerBalance * (systemStatus?.risk_pct || 0);
-                      if (risk <= 0) return alert('손절가가 매수가보다 높거나 같습니다.');
-                      const calcShares = Math.floor(riskAmt / risk);
-                      executeBrokerTrade(activeTicker, latest.close, calcShares > 0 ? calcShares : 1);
-                    }}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded shadow-lg shadow-blue-500/20 transition-all flex items-center"
-                  >
-                    <Zap className="w-3.5 h-3.5 mr-1" />
-                    추천 가격으로 1차 즉시 매수 ({(systemStatus?.risk_pct * 100 || 0).toFixed(2)}% 리스크)
-                  </button>
-                </div>
-              </div>
-            )}
+    const structPillPoints = (latest.close > latest.avwap ? 1 : 0) + (latest.close > poc ? 1 : 0);
+    const riskPillPoints = (latest.chandelier_exit > 0 && latest.close > latest.chandelier_exit) ? 2 : 0;
+    const fundPillPoints = 1;
+
+    const totalCompositeScore = fundPillPoints + structPillPoints + momPillPoints + riskPillPoints;
+
+    if (!(latest.chandelier_exit > 0 && systemStatus)) return null;
+
+    let suggested_entry = latest.close;
+    let entry_text = "";
+    
+    if (totalCompositeScore >= 9) {
+        suggested_entry = latest.close;
+        entry_text = "강한 모멘텀 상태로 현재가 부근 즉시 진입 (돌파 매수)";
+    } else {
+        if (systemStatus.regime === 'Recovery') {
+            suggested_entry = Math.max(latest.ema_60 || 0, latest.ema_120 || 0, poc) || latest.close;
+            entry_text = "60/120EMA 지지 및 양봉 전환 시 (눌림 매수)";
+        } else if (systemStatus.regime === 'Broad Bull' || systemStatus.regime === 'Narrow Bull') {
+            suggested_entry = Math.max(latest.ema_20 || 0, latest.avwap || 0, poc) || latest.close;
+            entry_text = "20EMA/VWAP 지지 및 양봉 전환 시 (눌림 매수)";
+        } else {
+            suggested_entry = latest.close;
+            entry_text = "신규 진입 보류 권장 (리스크 관리 구간)";
+        }
+    }
+    
+    if (suggested_entry >= latest.close) suggested_entry = latest.close;
+    
+    let stop_loss = latest.chandelier_exit;
+    if (stop_loss >= suggested_entry) {
+        stop_loss = suggested_entry * 0.95; // 5% stop loss for pullback
+    }
+    
+    const risk = suggested_entry - stop_loss;
+    const target_1r = suggested_entry + risk;
+    const target_2r = suggested_entry + risk * 2;
+    const target_08r = suggested_entry + risk * 0.8;
+    const target_15r = suggested_entry + risk * 1.5;
+
+    return (
+      <div className="mt-4 p-4 border border-slate-800/50 flex flex-col gap-4 bg-slate-900/30 rounded-lg animate-fade-in shadow-xl">
+        <h4 className="font-bold text-sm text-slate-300 flex items-center justify-between">
+          <div className="flex items-center">
+            <Crosshair className="w-4 h-4 mr-2 text-indigo-400" />
+            장세 맞춤형 매매 플랜 ({systemStatus.regime || '분석 중...'})
           </div>
-          );
-        })()}
+          <div className="flex items-center space-x-3">
+            <div className="bg-slate-800/50 px-3 py-1 rounded-full border border-slate-700/50 hidden sm:flex items-center">
+              <span className="text-[10px] text-slate-400 mr-2 uppercase tracking-wider">현재가</span>
+              <span className="text-sm font-bold text-white">₩{latest.close.toLocaleString()}</span>
+            </div>
+            <button 
+              onClick={async () => {
+                let successCount = 0;
+                const t1 = Math.floor(target_1r);
+                if (await registerAlert(activeTicker, t1, 'above', '1차 목표가 도달! 일부 익절을 고려하세요.')) successCount++;
+                
+                const t2 = Math.floor(target_2r);
+                if (await registerAlert(activeTicker, t2, 'above', '2차 목표가 도달! 추가 익절을 고려하세요.')) successCount++;
+                
+                const sl = Math.floor(stop_loss);
+                if (await registerAlert(activeTicker, sl, 'below', '손절가 이탈! 리스크 관리가 필요합니다.')) successCount++;
+                
+                if (successCount > 0) alert(`[알림 등록] ${activeTicker}의 목표가 및 손절가 알림이 텔레그램으로 전송되도록 설정되었습니다.`);
+              }}
+              className="flex items-center text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded transition-colors"
+            >
+              <Bell className="w-3.5 h-3.5 mr-1 text-amber-400" /> 모두 알람 켜기
+            </button>
+          </div>
+        </h4>
+        
+        {systemStatus.regime === 'Bear' ? (
+          <div className="text-rose-400 bg-rose-900/20 p-3 rounded text-sm text-center border border-rose-500/30">
+            <AlertTriangle className="w-4 h-4 inline mr-1" />
+            현재 하락장(Bear) 국면입니다. 원칙적으로 신규 매수를 금지하며, 기존 보유 종목은 리스크 관리에 집중하세요.
+          </div>
+        ) : (
+          <div className="flex flex-col gap-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700">
+                <span className="text-[10px] text-slate-500 uppercase tracking-wider block mb-1">1차 매수가 (1st Entry)</span>
+                <span className="text-sm font-bold text-blue-400 block mb-1">
+                  ₩{Math.floor(suggested_entry).toLocaleString()} 부근
+                </span>
+                <span className="text-xs text-slate-400">
+                  {entry_text}
+                </span>
+              </div>
+              
+              <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700">
+                <span className="text-[10px] text-slate-500 uppercase tracking-wider block mb-1">2차 매수가 (2nd Entry)</span>
+                <span className="text-sm font-bold text-blue-400 block mb-1">
+                  {systemStatus.regime === 'Broad Bull' ? '전고점 또는 POC 돌파 시' : '추가 진입 보류 권장 (리스크 관리)'}
+                </span>
+                <span className="text-xs text-slate-400">
+                  {systemStatus.regime === 'Broad Bull' ? '15분봉 종가 지지 안착 확인 후 진입' : '현재 장세에서는 피라미딩을 제한합니다'}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-slate-800 pt-4">
+              <div>
+                <span className="text-[10px] text-slate-500 uppercase tracking-wider block mb-0.5">
+                  1차 목표가 ({systemStatus.regime === 'Recovery' ? '0.8R~1R' : '1R'})
+                </span>
+                <span className="text-sm font-bold text-emerald-400 block mb-1">
+                  {systemStatus.regime === 'Recovery' ? (
+                    `₩${Math.floor(target_08r).toLocaleString()} ~ ₩${Math.floor(target_1r).toLocaleString()}`
+                  ) : (
+                    `₩${Math.floor(target_1r).toLocaleString()}`
+                  )}
+                </span>
+                <span className="text-[11px] text-slate-400">
+                  {systemStatus.regime === 'Broad Bull' ? '도달 시 30~50% 익절 (리스크 회수)' : 
+                   systemStatus.regime === 'Narrow Bull' ? '도달 시 50% 적극 익절 (수익 우선)' :
+                   '빠른 50% 이상 익절 (욕심 자제)'}
+                </span>
+              </div>
+              
+              <div className="md:border-l border-slate-700 md:pl-4">
+                <span className="text-[10px] text-slate-500 uppercase tracking-wider block mb-0.5">
+                  2차 목표가 ({systemStatus.regime === 'Narrow Bull' ? '1.5R~2R' : systemStatus.regime === 'Recovery' ? '저항선' : '2R'})
+                </span>
+                <span className="text-sm font-bold text-emerald-400 block mb-1">
+                  {systemStatus.regime === 'Narrow Bull' ? (
+                     `₩${Math.floor(target_15r).toLocaleString()} ~`
+                  ) : systemStatus.regime === 'Recovery' ? (
+                     `120/200EMA 부근`
+                  ) : (
+                     `₩${Math.floor(target_2r).toLocaleString()}`
+                  )}
+                </span>
+                <span className="text-[11px] text-slate-400">
+                  {systemStatus.regime === 'Broad Bull' ? '도달 시 20~30% 익절 (목표 달성)' : 
+                   systemStatus.regime === 'Narrow Bull' ? '도달 시 추가 익절 (잔량은 짧게)' :
+                   '박스권 상단 또는 이평 저항선 익절'}
+                </span>
+              </div>
+              
+              <div className="md:border-l border-slate-700 md:pl-4">
+                <span className="text-[10px] text-slate-500 uppercase tracking-wider block mb-0.5">기계적 손절가 & 최종 청산</span>
+                <span className="text-sm font-bold text-rose-400 block mb-1">
+                  ₩{Math.floor(stop_loss).toLocaleString()}
+                </span>
+                <span className="text-[11px] text-slate-400">
+                  최초 손절 이탈 시 전량 매도.<br/>
+                  수익 중엔 Chandelier/20EMA 이탈 시 잔량 청산.
+                </span>
+              </div>
+            </div>
+
+            <div className="flex justify-end mt-2">
+              <button 
+                onClick={() => {
+                  const riskAmt = brokerBalance * (systemStatus?.risk_pct || 0);
+                  if (risk <= 0) return alert('손절가가 매수가보다 높거나 같습니다.');
+                  const calcShares = Math.floor(riskAmt / risk);
+                  executeBrokerTrade(activeTicker, latest.close, calcShares > 0 ? calcShares : 1);
+                }}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded shadow-lg shadow-blue-500/20 transition-all flex items-center"
+              >
+                <Zap className="w-3.5 h-3.5 mr-1" />
+                추천 가격으로 1차 즉시 매수 ({(systemStatus?.risk_pct * 100 || 0).toFixed(2)}% 리스크)
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     );
   };
@@ -663,6 +753,7 @@ function App() {
             
             {/* AI Quant Insight Panel */}
             {getAnalysisInsight()}
+            {renderTradingAdvice()}
 
           </div>
         </div>
