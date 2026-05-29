@@ -129,6 +129,7 @@ function App() {
   const [isScoring, setIsScoring] = useState(false);
   const [scanProgress, setScanProgress] = useState<{total: number, current: number, is_running: boolean}>({total: 0, current: 0, is_running: false});
   const [scanStartTime, setScanStartTime] = useState<number | null>(null);
+  const [sectorAnalysis, setSectorAnalysis] = useState<any>(null);
 
   // Load ALL tickers once and test connection
   useEffect(() => {
@@ -222,6 +223,13 @@ function App() {
             is_running: res.data.is_running
           });
           
+          if (res.data.sectors && Object.keys(res.data.sectors).length > 0) {
+            setSectorAnalysis({
+              sectors: res.data.sectors,
+              topPicks: res.data.sector_top_picks || {}
+            });
+          }
+          
           if (res.data.is_running) {
             setIsScoring(true);
           } else {
@@ -233,6 +241,15 @@ function App() {
               if (resultRes.data) {
                 setScoredStocks(resultRes.data);
                 setWatchlistTickers(Object.keys(resultRes.data));
+              }
+              
+              // Also fetch final status to get final sector data
+              const finalStatusRes = await axios.get(`${BACKEND_URL}/api/v4/screener/status`, { headers: { "Bypass-Tunnel-Reminder": "true" } });
+              if (finalStatusRes.data && finalStatusRes.data.sectors) {
+                setSectorAnalysis({
+                  sectors: finalStatusRes.data.sectors,
+                  topPicks: finalStatusRes.data.sector_top_picks || {}
+                });
               }
             }
           }
@@ -809,6 +826,116 @@ function App() {
                     ) : '⏳ 계산 중...'}
                   </span>
                   <span>{scanProgress.current.toLocaleString()} / {scanProgress.total.toLocaleString()} 완료</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Sector Trend Tracker */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-xl flex flex-col mb-4">
+            <h2 className="font-semibold text-slate-100 flex items-center mb-2 text-sm">
+              <Layers className="w-4 h-4 mr-2 text-blue-400" />
+              주도 섹터 트래커 (Leading Sectors)
+            </h2>
+            <p className="text-[11px] text-slate-400 mb-4 leading-relaxed">
+              상승 추세 종목 비중(Bullish Ratio)이 높은 주도 섹터와 핵심 탑픽 종목을 실시간으로 분석합니다. (기준: Close &gt; 200EMA 및 20EMA &gt; 50EMA)
+            </p>
+            
+            {!sectorAnalysis ? (
+              <div className="flex flex-col items-center justify-center py-6 text-center bg-slate-950/40 border border-slate-800/80 rounded-xl p-3">
+                <Activity className="w-6 h-6 mb-2 text-slate-600 animate-pulse" />
+                <p className="text-xs text-slate-400 font-medium">섹터 데이터 분석 대기 중</p>
+                <p className="text-[10px] text-slate-500 mt-1 leading-normal">
+                  위의 스캔 시작 버튼을 누르면 실시간으로 10대 테마별 업종 분석이 진행됩니다.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4 max-h-[350px] overflow-y-auto pr-1 custom-scrollbar">
+                {/* Sector List */}
+                <div className="space-y-2.5">
+                  {Object.entries(sectorAnalysis.sectors)
+                    .sort((a: any, b: any) => b[1] - a[1]) // Sort by bullish ratio descending
+                    .map(([secName, ratio]: any) => {
+                      const isLeading = ratio >= 50;
+                      const barColor = ratio >= 60 ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]' : ratio >= 45 ? 'bg-blue-500' : 'bg-slate-600';
+                      
+                      return (
+                        <div key={secName} className="space-y-1">
+                          <div className="flex justify-between text-[11px] font-semibold">
+                            <span className="text-slate-200 flex items-center">
+                              {secName}
+                              {isLeading && <span className="ml-1.5 text-[8px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-1 rounded uppercase tracking-wider font-sans">주도</span>}
+                            </span>
+                            <span className={ratio >= 60 ? 'text-emerald-400 font-mono' : ratio >= 45 ? 'text-blue-400 font-mono' : 'text-slate-400 font-mono'}>
+                              {ratio.toFixed(0)}% Bullish
+                            </span>
+                          </div>
+                          <div className="w-full bg-slate-950 rounded-full h-1.5 overflow-hidden border border-slate-850">
+                            <div 
+                              className={`h-1.5 rounded-full transition-all duration-700 ease-out ${barColor}`}
+                              style={{ width: `${ratio}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+
+                {/* Leading Sector Top Picks */}
+                <div className="border-t border-slate-800/80 pt-3">
+                  <h3 className="text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-2 flex items-center">
+                    <Zap className="w-3.5 h-3.5 mr-1 text-yellow-400" />
+                    주도 섹터 핵심 탑픽 (Top Picks)
+                  </h3>
+                  <div className="space-y-1.5">
+                    {(() => {
+                      // Get top picks from sectors with ratio >= 45%
+                      const leadingSectors = Object.entries(sectorAnalysis.sectors)
+                        .filter(([_, ratio]: any) => ratio >= 45) // Show picks from >=45% bullish sectors
+                        .map(([name]) => name);
+                      
+                      const picks: any[] = [];
+                      leadingSectors.forEach(secName => {
+                        const sectorPicks = (sectorAnalysis.topPicks as any)[secName] || [];
+                        sectorPicks.forEach((p: any) => {
+                          picks.push({ ...p, sector: secName });
+                        });
+                      });
+
+                      const uniquePicks = picks
+                        .filter((v, i, a) => a.findIndex(t => t.ticker === v.ticker) === i)
+                        .sort((a, b) => b.score - a.score)
+                        .slice(0, 4);
+
+                      if (uniquePicks.length === 0) {
+                        return (
+                          <p className="text-[10px] text-slate-500 leading-relaxed text-center py-2 bg-slate-950/20 rounded-lg font-sans">
+                            현재 주도 섹터(상승 추세 45% 이상) 내에 4점 이상을 획득한 추천 탑픽 종목이 없습니다. 스캔이 완료되면 채워집니다.
+                          </p>
+                        );
+                      }
+
+                      return uniquePicks.map((pick: any) => (
+                        <div 
+                          key={pick.ticker} 
+                          onClick={() => setActiveTicker(pick.ticker)}
+                          className={`flex items-center justify-between p-2 bg-slate-950/40 hover:bg-slate-800/50 border border-slate-800/60 hover:border-slate-700/80 rounded-xl cursor-pointer transition-all ${
+                            activeTicker === pick.ticker ? 'border-blue-500/50 bg-blue-950/20 shadow-[0_0_10px_rgba(59,130,246,0.15)]' : ''
+                          }`}
+                        >
+                          <div className="flex flex-col">
+                            <span className="text-xs font-bold text-slate-200">{pick.name}</span>
+                            <span className="text-[9px] text-slate-500 font-mono mt-0.5">{pick.ticker} · {pick.sector}</span>
+                          </div>
+                          <div className="flex items-center space-x-1.5">
+                            <span className="text-[10px] font-bold text-yellow-400 bg-yellow-500/10 border border-yellow-500/30 px-1.5 py-0.5 rounded font-mono">
+                              {pick.score} Pts
+                            </span>
+                          </div>
+                        </div>
+                      ));
+                    })()}
+                  </div>
                 </div>
               </div>
             )}

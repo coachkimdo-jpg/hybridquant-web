@@ -23,11 +23,31 @@ class AlertRequest(BaseModel):
 
 app = FastAPI(title="HybridQuant Web API")
 
+SECTORS = {
+    "반도체/IT장비": ["005930", "000660", "042700", "009150", "007660", "108320", "000990", "011070", "353200", "281820", "009155"],
+    "자동차/부품": ["005380", "000270", "012330", "011210", "200880", "005850", "204320"],
+    "2차전지/소재": ["373220", "006400", "051910", "003670", "005070", "006690", "450080"],
+    "바이오/헬스케어": ["207940", "068270", "000100", "128940", "008930", "185750", "069620", "003000", "019170"],
+    "방산/우주/중공업": ["012450", "047810", "079550", "272210", "329180", "042660", "010140", "064350", "009540"],
+    "금융/지주사": ["105560", "055550", "086790", "316140", "032830", "000810", "005830", "001450", "006800", "071055", "039490", "016360", "005940", "138040", "024110", "175330", "138930", "139130", "029780"],
+    "에너지/화학/철강": ["005490", "010130", "004020", "010950", "096770", "036460", "015760", "051600", "052690", "011780", "011170", "090460", "010060", "103140"],
+    "인터넷/게임/엔터": ["035420", "035720", "323410", "377300", "259960", "251270", "192080", "462870", "352820", "079160", "034120"],
+    "건설/기계/전력기기": ["267260", "010120", "298040", "034020", "454910", "241560", "267250", "000720", "006360", "047040", "375500"],
+    "소비재/음식료/유통": ["003230", "004370", "007310", "005180", "097950", "005300", "271560", "033780", "090430", "051900", "111770", "020000", "383220", "008770", "004170", "069960", "139480", "023530"]
+}
+
+TICKER_TO_SECTOR = {}
+for sec_name, tickers in SECTORS.items():
+    for t in tickers:
+        TICKER_TO_SECTOR[t] = sec_name
+
 scan_status = {
     "is_running": False,
     "total": 0,
     "current": 0,
-    "results": {}
+    "results": {},
+    "sectors": {},
+    "sector_top_picks": {}
 }
 
 import threading
@@ -41,6 +61,8 @@ def bg_scan_market():
     scan_status["is_running"] = True
     scan_status["current"] = 0
     scan_status["results"] = {}
+    scan_status["sectors"] = {}
+    scan_status["sector_top_picks"] = {}
 
     import json
     import os
@@ -57,6 +79,8 @@ def bg_scan_market():
     keys = list(all_stocks.keys())
     scan_status["total"] = len(keys)
     
+    scan_data_list = []
+    
     def scan_single_ticker(ticker: str, name: str):
         if not scan_status["is_running"]:
             return
@@ -64,13 +88,16 @@ def bg_scan_market():
         try:
             chart_res = get_v2_chart_data(ticker, db)
             cdata = chart_res.get("chart_data", [])
+            is_bullish = False
+            score = 0
             if cdata:
                 latest = cdata[-1]
                 c_close = latest.get("close", 0)
                 
-                score = 0
-                passes = []
+                # 상승 추세 기준: 주가가 200EMA 위, 20EMA > 50EMA
+                is_bullish = c_close > latest.get("ema_200", 0) and latest.get("ema_20", 0) > latest.get("ema_50", 0)
                 
+                passes = []
                 score += 1
                 passes.append("fundamental")
                 
@@ -102,6 +129,7 @@ def bg_scan_market():
                         "score": score,
                         "passes": passes
                     }
+            scan_data_list.append({"ticker": ticker, "is_bullish": is_bullish, "score": score})
         except Exception as e:
             print(f"Error scanning ticker {ticker}: {e}")
         finally:
@@ -116,6 +144,40 @@ def bg_scan_market():
                 break
             scan_status["current"] = i + 1
 
+    # Calculate sector statistics
+    sector_stats = {sec_name: {"total": 0, "bullish": 0} for sec_name in SECTORS.keys()}
+    sector_top_picks = {sec_name: [] for sec_name in SECTORS.keys()}
+    
+    for item in scan_data_list:
+        ticker = item["ticker"]
+        is_bullish = item["is_bullish"]
+        score = item["score"]
+        
+        sec_name = TICKER_TO_SECTOR.get(ticker)
+        if sec_name:
+            sector_stats[sec_name]["total"] += 1
+            if is_bullish:
+                sector_stats[sec_name]["bullish"] += 1
+                
+            # If stock scored >= 4, add as a top pick for that sector
+            if score >= 4:
+                sector_top_picks[sec_name].append({
+                    "ticker": ticker,
+                    "name": all_stocks[ticker],
+                    "score": score
+                })
+                
+    # Save bullish ratios to global scan_status
+    scan_status["sectors"] = {
+        sec_name: (stats["bullish"] / stats["total"] * 100) if stats["total"] > 0 else 0
+        for sec_name, stats in sector_stats.items()
+    }
+    
+    # Sort top picks by score descending
+    for sec_name in sector_top_picks.keys():
+        sector_top_picks[sec_name] = sorted(sector_top_picks[sec_name], key=lambda x: x["score"], reverse=True)[:5]
+        
+    scan_status["sector_top_picks"] = sector_top_picks
     scan_status["is_running"] = False
 
 @app.get("/api/v4/screener/start-scan")
