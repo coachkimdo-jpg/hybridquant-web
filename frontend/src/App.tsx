@@ -254,21 +254,23 @@ function App() {
             setIsScoring(true);
           } else {
             // Once finished or not running, stop scoring state
-            if (isScoring) {
+            if (isScoring || Object.keys(scoredStocks).length === 0) {
               setIsScoring(false);
-              // Fetch results
-              const resultRes = await axios.get(`${BACKEND_URL}/api/v4/screener/results`, { headers: { "Bypass-Tunnel-Reminder": "true" } });
-              if (resultRes.data) {
-                setScoredStocks(resultRes.data);
-                setWatchlistTickers(Object.keys(resultRes.data));
+              
+              if (res.data.total > 0) {
+                // Fetch results
+                const resultRes = await axios.get(`${BACKEND_URL}/api/v4/screener/results`, { headers: { "Bypass-Tunnel-Reminder": "true" } });
+                if (resultRes.data) {
+                  setScoredStocks(resultRes.data);
+                  setWatchlistTickers(Object.keys(resultRes.data));
+                }
               }
               
               // Also fetch final status to get final sector data
-              const finalStatusRes = await axios.get(`${BACKEND_URL}/api/v4/screener/status`, { headers: { "Bypass-Tunnel-Reminder": "true" } });
-              if (finalStatusRes.data && finalStatusRes.data.sectors) {
+              if (res.data.sectors && Object.keys(res.data.sectors).length > 0) {
                 setSectorAnalysis({
-                  sectors: finalStatusRes.data.sectors,
-                  topPicks: finalStatusRes.data.sector_top_picks || {}
+                  sectors: res.data.sectors,
+                  topPicks: res.data.sector_top_picks || {}
                 });
               }
             }
@@ -291,11 +293,7 @@ function App() {
     return () => clearInterval(interval);
   }, [isScoring]);
 
-  useEffect(() => {
-    if (Object.keys(allTickerNames).length > 0) {
-        runScoringEngine(false);
-    }
-  }, [allTickerNames]);
+
 
   useEffect(() => {
     const fetchInitial = async () => {
