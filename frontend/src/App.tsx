@@ -131,6 +131,22 @@ function App() {
   const [scanStartTime, setScanStartTime] = useState<number | null>(null);
   const [sectorAnalysis, setSectorAnalysis] = useState<any>(null);
 
+  const SECTORS_INFO = {
+    "반도체/IT장비": 11,
+    "자동차/부품": 7,
+    "2차전지/소재": 7,
+    "바이오/헬스케어": 9,
+    "방산/우주/중공업": 9,
+    "금융/지주사": 19,
+    "에너지/화학/철강": 14,
+    "인터넷/게임/엔터": 11,
+    "건설/기계/전력기기": 11,
+    "소비재/음식료/유통": 17
+  };
+
+  const [scanMode, setScanMode] = useState<'all' | 'sectors'>('sectors');
+  const [selectedSectors, setSelectedSectors] = useState<string[]>(Object.keys(SECTORS_INFO));
+
   // Load ALL tickers once and test connection
   useEffect(() => {
     const fetchAllStocks = async () => {
@@ -198,7 +214,11 @@ function App() {
     setIsScoring(true);
     setScanStartTime(Date.now());
     try {
-      await axios.get(`${BACKEND_URL}/api/v4/screener/start-scan`, { headers: { "Bypass-Tunnel-Reminder": "true" } });
+      let url = `${BACKEND_URL}/api/v4/screener/start-scan`;
+      if (scanMode === 'sectors' && selectedSectors.length > 0) {
+        url += `?sectors=${encodeURIComponent(selectedSectors.join(','))}`;
+      }
+      await axios.get(url, { headers: { "Bypass-Tunnel-Reminder": "true" } });
       if (showFeedback) {
           // Do not alert to prevent blocking the UI, let the progress bar speak for itself
       }
@@ -788,13 +808,117 @@ function App() {
               엄격한 탈락(Hard Filter) 대신 6개의 핵심 기준을 통과할 때마다 점수를 부여하여 시장 상황에 유연하게 대응합니다. (4점 이상: 관심, 5점: 우수, 6점: A-Grade)
             </p>
             {!isScoring ? (
-              <button 
-                onClick={() => runScoringEngine(true)}
-                className="w-full flex items-center justify-center px-4 py-2 text-white text-xs font-bold rounded shadow-lg transition-all bg-indigo-600 hover:bg-indigo-500 shadow-indigo-500/20"
-              >
-                <Activity className="w-4 h-4 mr-2" />
-                🚀 전체 시장 스캔 시작 (약 5~10분 소요)
-              </button>
+              (() => {
+                const totalSelectedCount = selectedSectors.reduce((acc, sec) => acc + ((SECTORS_INFO as any)[sec] || 0), 0);
+                const estimatedSeconds = scanMode === 'sectors' 
+                  ? Math.max(1, Math.ceil(totalSelectedCount * 0.04)) 
+                  : 45;
+                return (
+                  <div className="space-y-3.5">
+                    {/* Scan Mode Segmented Control */}
+                    <div className="flex p-0.5 bg-slate-950/60 border border-slate-800 rounded-lg">
+                      <button
+                        onClick={() => setScanMode('sectors')}
+                        className={`flex-1 flex items-center justify-center py-1.5 text-[11px] font-bold rounded-md transition-all ${
+                          scanMode === 'sectors'
+                            ? 'bg-indigo-600 text-white shadow-[0_0_8px_rgba(79,70,229,0.3)]'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <Zap className="w-3.5 h-3.5 mr-1 text-yellow-400" />
+                        섹터 집중 스캔
+                      </button>
+                      <button
+                        onClick={() => setScanMode('all')}
+                        className={`flex-1 flex items-center justify-center py-1.5 text-[11px] font-bold rounded-md transition-all ${
+                          scanMode === 'all'
+                            ? 'bg-indigo-600 text-white shadow-[0_0_8px_rgba(79,70,229,0.3)]'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <Activity className="w-3.5 h-3.5 mr-1" />
+                        전체 시장 스캔
+                      </button>
+                    </div>
+
+                    {/* Sector Grid Checklist */}
+                    {scanMode === 'sectors' && (
+                      <div className="space-y-2 bg-slate-950/30 border border-slate-850 p-2.5 rounded-xl">
+                        <div className="flex justify-between items-center text-[10px] text-slate-400 font-bold px-0.5">
+                          <span>대상 업종 선택 ({selectedSectors.length}개)</span>
+                          <div className="space-x-1 text-indigo-400 text-[9px] font-semibold">
+                            <button
+                              onClick={() => setSelectedSectors(Object.keys(SECTORS_INFO))}
+                              className="hover:text-indigo-300 transition-colors"
+                            >
+                              전체 선택
+                            </button>
+                            <span className="text-slate-600">·</span>
+                            <button
+                              onClick={() => setSelectedSectors([])}
+                              className="hover:text-indigo-300 transition-colors"
+                            >
+                              전체 해제
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-1 max-h-[145px] overflow-y-auto pr-0.5 custom-scrollbar">
+                          {Object.entries(SECTORS_INFO).map(([secName, count]) => {
+                            const isChecked = selectedSectors.includes(secName);
+                            return (
+                              <button
+                                key={secName}
+                                onClick={() => {
+                                  if (isChecked) {
+                                    setSelectedSectors(selectedSectors.filter(s => s !== secName));
+                                  } else {
+                                    setSelectedSectors([...selectedSectors, secName]);
+                                  }
+                                }}
+                                className={`flex justify-between items-center px-2 py-1.5 text-[10px] font-semibold border rounded-lg transition-all text-left ${
+                                  isChecked
+                                    ? 'bg-indigo-950/30 border-indigo-500/40 text-indigo-200 shadow-[0_0_6px_rgba(99,102,241,0.1)]'
+                                    : 'bg-slate-950/10 border-slate-800 text-slate-500 hover:border-slate-700/80 hover:text-slate-350'
+                                }`}
+                              >
+                                <span className="truncate">{secName}</span>
+                                <span className={`text-[8px] px-1 rounded font-mono ${isChecked ? 'bg-indigo-500/20 text-indigo-400' : 'bg-slate-850 text-slate-650'}`}>
+                                  {count}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    <button 
+                      onClick={() => runScoringEngine(true)}
+                      disabled={scanMode === 'sectors' && selectedSectors.length === 0}
+                      className={`w-full flex flex-col items-center justify-center px-4 py-2 text-white text-xs font-bold rounded shadow-lg transition-all ${
+                        scanMode === 'sectors' && selectedSectors.length === 0
+                          ? 'bg-slate-800 border border-slate-700 text-slate-500 cursor-not-allowed shadow-none'
+                          : scanMode === 'sectors'
+                          ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/20 hover:shadow-emerald-500/30 hover:scale-[1.01]'
+                          : 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-500/20 hover:shadow-indigo-500/30 hover:scale-[1.01]'
+                      }`}
+                    >
+                      <div className="flex items-center">
+                        <Activity className="w-3.5 h-3.5 mr-2 animate-pulse" />
+                        {scanMode === 'sectors' 
+                          ? `🚀 선택 섹터 집중 스캔 시작` 
+                          : `🌐 전체 시장 스캔 시작`}
+                      </div>
+                      <span className="text-[9px] text-slate-300 font-normal mt-0.5 opacity-90 font-sans">
+                        {scanMode === 'sectors' 
+                          ? `총 ${totalSelectedCount}종목 · 약 ${estimatedSeconds}초 소요 예정` 
+                          : `900+종목 · 약 45초 소요 예정`}
+                      </span>
+                    </button>
+                  </div>
+                );
+              })()
             ) : (
               <div className="w-full bg-slate-800 rounded p-3 shadow-inner">
                 <div className="flex justify-between items-center mb-2">

@@ -54,7 +54,7 @@ import threading
 import time
 from database import SessionLocal
 
-def bg_scan_market():
+def bg_scan_market(selected_sectors=None):
     global scan_status
     if scan_status["is_running"]:
         return
@@ -77,6 +77,18 @@ def bg_scan_market():
         all_stocks = json.load(f)
         
     keys = list(all_stocks.keys())
+    
+    if selected_sectors:
+        target_tickers = set()
+        if "LEADING_115" in selected_sectors:
+            for sec_tickers in SECTORS.values():
+                target_tickers.update(sec_tickers)
+        else:
+            for sec_name in selected_sectors:
+                if sec_name in SECTORS:
+                    target_tickers.update(SECTORS[sec_name])
+        keys = [k for k in keys if k in target_tickers]
+        
     scan_status["total"] = len(keys)
     
     scan_data_list = []
@@ -181,10 +193,15 @@ def bg_scan_market():
     scan_status["is_running"] = False
 
 @app.get("/api/v4/screener/start-scan")
-def start_scan():
+def start_scan(sectors: str = None):
     if scan_status["is_running"]:
         return {"message": "Scan already running"}
-    t = threading.Thread(target=bg_scan_market)
+    
+    selected_sectors = None
+    if sectors:
+        selected_sectors = [s.strip() for s in sectors.split(",") if s.strip()]
+        
+    t = threading.Thread(target=bg_scan_market, args=(selected_sectors,))
     t.start()
     return {"message": "Scan started"}
 
